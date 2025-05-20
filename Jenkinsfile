@@ -2,9 +2,9 @@ pipeline {
     agent any
 
     environment {
-        DB_HOST = 'your-db-server.postgres.database.azure.com'
+        DB_HOST = 'testpostgrestest.postgres.database.azure.com'
         DB_PORT = '5432'
-        DB_NAME = 'your-db-name'
+        DB_NAME = 'testpostgrestest'
         DB_CRED_ID = 'pg-azure-creds' // Jenkins credential ID
         CSV_FILE = 'data.csv' // CSV file pushed to GitHub
         TABLE_NAME = 'csv_data'
