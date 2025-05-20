@@ -2,38 +2,37 @@ pipeline {
     agent any
 
     environment {
-        DB_HOST = 'your-db-server-name.postgres.database.azure.com'
+        DB_HOST = 'your-db-server.postgres.database.azure.com'
         DB_PORT = '5432'
-        DB_NAME = 'your-database-name'
+        DB_NAME = 'your-db-name'
         DB_CRED_ID = 'pg-azure-creds' // Jenkins credential ID
+        CSV_FILE = 'data.csv' // CSV file pushed to GitHub
+        TABLE_NAME = 'csv_data'
     }
 
     stages {
-        stage('Checkout SQL Files') {
+        stage('Checkout Code') {
             steps {
                 git url: 'https://github.com/sandeep23blr/Postgressql.git', branch: 'main', credentialsId: 'git'
             }
         }
 
-        stage('Insert Data') {
+        stage('Insert CSV into Database') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
                     sh """
-                        echo "Inserting data into Azure PostgreSQL..."
-                        PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d $DB_NAME -f insert_data.sql
-                    """
-                }
-            }
-        }
+                        echo "Creating table if not exists..."
+                        echo "CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
+                            id SERIAL PRIMARY KEY,
+                            name TEXT,
+                            email TEXT
+                        );" > create_table.sql
 
-        stage('Query Data') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh """
-                        echo "Querying data from Azure PostgreSQL..."
-                        PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d $DB_NAME -f query_data.sql > query_output.txt
+                        PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d $DB_NAME -f create_table.sql
+
+                        echo "Copying CSV data into table..."
+                        PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d $DB_NAME -c "\\COPY ${TABLE_NAME}(name,email) FROM '${CSV_FILE}' CSV HEADER;"
                     """
-                    archiveArtifacts artifacts: 'query_output.txt', fingerprint: true
                 }
             }
         }
