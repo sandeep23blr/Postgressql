@@ -2,31 +2,16 @@ pipeline {
     agent any
 
     environment {
-        DB_HOST = 'testpostgrestest.postgres.database.azure.com'
+        DB_HOST = 'your-db-server-name.postgres.database.azure.com'
         DB_PORT = '5432'
-        DB_NAME = 'testpostgrestest' // Connects to default db first
-        DB_USER = 'postgres@testpostgrestest' // Fully qualified Azure username
-        DB_CRED_ID = 'pg-azure-creds' // Jenkins credential with username/password
+        DB_NAME = 'your-database-name'
+        DB_CRED_ID = 'pg-azure-creds' // Jenkins credential ID
     }
 
     stages {
-        stage('Install PostgreSQL Client') {
+        stage('Checkout SQL Files') {
             steps {
-                sh '''
-                    apt-get update
-                    apt-get install -y postgresql-client
-                '''
-            }
-        }
-
-        stage('Create Database') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh """
-                        echo "Creating sampledb..."
-                        PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d $DB_NAME -c "CREATE DATABASE sampledb;"
-                    """
-                }
+                git url: 'https://github.com/sandeep23blr/Postgressql.git', branch: 'main', credentialsId: 'git'
             }
         }
 
@@ -34,8 +19,8 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
                     sh """
-                        echo "Inserting data..."
-                        PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d sampledb -f insert_data.sql
+                        echo "Inserting data into Azure PostgreSQL..."
+                        PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d $DB_NAME -f insert_data.sql
                     """
                 }
             }
@@ -45,8 +30,8 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
                     sh """
-                        echo "Querying data..."
-                        PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d sampledb -f query_data.sql > query_output.txt
+                        echo "Querying data from Azure PostgreSQL..."
+                        PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d $DB_NAME -f query_data.sql > query_output.txt
                     """
                     archiveArtifacts artifacts: 'query_output.txt', fingerprint: true
                 }
