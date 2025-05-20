@@ -5,10 +5,10 @@ pipeline {
         DB_HOST = 'testpostgrestest.postgres.database.azure.com'
         DB_PORT = '5432'
         DB_NAME = 'testpostgrestest'
-        DB_CRED_ID = 'pg-azure-creds'       // Jenkins credential ID (Username + Password)
-        CSV_FILE = 'data.csv'               // CSV file pushed to GitHub
+        DB_CRED_ID = 'pg-azure-creds'
+        CSV_FILE = 'data.csv'
         TABLE_NAME = 'csv_data'
-        LOCAL_CSV_PATH = 'workspace_data.csv' // temporary name for COPY command
+        LOCAL_CSV_PATH = 'workspace_data.csv'
     }
 
     stages {
@@ -31,13 +31,13 @@ pipeline {
                         );" > create_table.sql
 
                         echo "Running SQL to create table..."
-                        PGPASSWORD=\$PASSWORD psql -h $DB_HOST -p $DB_PORT -U \$USERNAME -d $DB_NAME --sslmode=require -f create_table.sql
+                        PGSSLMODE=require PGPASSWORD=\$PASSWORD psql -h $DB_HOST -p $DB_PORT -U \$USERNAME -d $DB_NAME -f create_table.sql
 
                         echo "Preparing CSV for copy..."
                         cp ${CSV_FILE} ${LOCAL_CSV_PATH}
 
                         echo "Inserting data from CSV into table..."
-                        PGPASSWORD=\$PASSWORD psql -h $DB_HOST -p $DB_PORT -U \$USERNAME -d $DB_NAME --sslmode=require -c "\\COPY ${TABLE_NAME}(name,email) FROM '${LOCAL_CSV_PATH}' CSV HEADER;"
+                        PGSSLMODE=require PGPASSWORD=\$PASSWORD psql -h $DB_HOST -p $DB_PORT -U \$USERNAME -d $DB_NAME -c "\\COPY ${TABLE_NAME}(name,email) FROM '${LOCAL_CSV_PATH}' CSV HEADER;"
                     """
                 }
             }
