@@ -2,10 +2,10 @@ pipeline {
     agent any
 
     environment {
-        DB_HOST = 'posttest.postgres.database.azure.com'
+        DB_HOST = 'testpostgrestest.postgres.database.azure.com'
         DB_PORT = '5432'
-        DB_NAME = 'posttest' // Will switch to sampledb inside SQL
-        DB_USER = 'sandeep
+        DB_NAME = 'testpostgrestest' // Will switch to sampledb inside SQL
+        DB_USER = 'postgres'
         DB_CRED_ID = 'pg-azure-creds'
     }
 
