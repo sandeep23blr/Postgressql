@@ -1,16 +1,12 @@
 pipeline {
-    agent {
-        docker {
-            image 'python:3.10-slim'
-            args '-u root'  // run as root so pip install works
-        }
-    }
+    agent any
 
     environment {
         DB_HOST = 'testpostgrestest.postgres.database.azure.com'
         DB_PORT = '5432'
         DB_NAME = 'postgres'
         DB_CRED_ID = 'pg-azure-creds'
+        VENV_PATH = '.venv'
     }
 
     stages {
@@ -25,19 +21,24 @@ pipeline {
                 script {
                     def file = sh(script: "find . -type f \\( -iname '*.csv' -o -iname '*.json' -o -iname '*.xlsx' \\) | head -n 1", returnStdout: true).trim()
                     if (!file) {
-                        error "No supported file (CSV, JSON, XLSX) found in repo."
+                        error "No supported file found."
                     }
                     env.DATA_FILE = file
                     def base = file.tokenize('/')[-1].split("\\.")[0].replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase()
                     env.TABLE_NAME = base
-                    echo "Found file: ${env.DATA_FILE}, will upload to table: ${env.TABLE_NAME}"
+                    echo "Detected file: ${env.DATA_FILE}, table: ${env.TABLE_NAME}"
                 }
             }
         }
 
-        stage('Install Python Requirements') {
+        stage('Setup Python Virtual Env') {
             steps {
-                sh 'pip install pandas sqlalchemy psycopg2-binary openpyxl'
+                sh '''
+                    python3 -m venv ${VENV_PATH}
+                    . ${VENV_PATH}/bin/activate
+                    pip install --upgrade pip
+                    pip install pandas sqlalchemy psycopg2-binary openpyxl
+                '''
             }
         }
 
@@ -74,9 +75,12 @@ df.columns = [col.strip().replace(" ", "_").replace("-", "_").lower() for col in
 with engine.begin() as conn:
     df.head(0).to_sql(table_name, conn, if_exists='append', index=False)
     df.to_sql(table_name, conn, if_exists='append', index=False)
-print(f"✅ Uploaded to {table_name}")
+print(f"Uploaded to {table_name}")
 '''
-                    sh 'python upload.py'
+                    sh '''
+                        . ${VENV_PATH}/bin/activate
+                        python upload.py
+                    '''
                 }
             }
         }
@@ -85,7 +89,7 @@ print(f"✅ Uploaded to {table_name}")
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
                     sh '''
-                        echo "Verifying table content..."
+                        echo "Verifying table..."
                         PGSSLMODE=require PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d $DB_NAME -c "SELECT COUNT(*) FROM ${TABLE_NAME};"
                     '''
                 }
