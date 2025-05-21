@@ -6,8 +6,8 @@ pipeline {
         DB_PORT = '5432'
         DB_NAME = 'postgres'
         DB_CRED_ID = 'pg-azure-creds'
-        CSV_FILE = 'data.csv'
-        TABLE_NAME = 'csv_data'
+        CSV_FILE = 'annual-enterprise-survey-2023-financial-year-provisional'
+        TABLE_NAME = 'annualenterprise'
         LOCAL_CSV_PATH = 'workspace_data.csv'
     }
 
