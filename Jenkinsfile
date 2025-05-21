@@ -36,8 +36,8 @@ pipeline {
                 sh '''
                     python3 -m venv ${VENV_PATH}
                     . ${VENV_PATH}/bin/activate
-                    pip install --upgrade pip
-                    pip install pandas sqlalchemy psycopg2-binary openpyxl
+                    ${VENV_PATH}/bin/pip install --upgrade pip
+                    ${VENV_PATH}/bin/pip install pandas sqlalchemy psycopg2-binary openpyxl
                 '''
             }
         }
@@ -48,7 +48,8 @@ pipeline {
                     writeFile file: 'upload.py', text: '''
 import os
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+import os.path
 
 file_path = os.environ['DATA_FILE']
 table_name = os.environ['TABLE_NAME']
@@ -57,8 +58,6 @@ db_pass = os.environ['PASSWORD']
 db_name = os.environ['DB_NAME']
 db_host = os.environ['DB_HOST']
 db_port = os.environ['DB_PORT']
-
-engine = create_engine(f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
 
 ext = os.path.splitext(file_path)[-1].lower()
 if ext == '.csv':
@@ -72,16 +71,20 @@ else:
 
 df.columns = [col.strip().replace(" ", "_").replace("-", "_").lower() for col in df.columns]
 
+engine = create_engine(f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
+
 with engine.begin() as conn:
-    df.head(0).to_sql(table_name, conn, if_exists='append', index=False)
+    # Create table if not exists with only column names
+    create_stmt = f'CREATE TABLE IF NOT EXISTS {table_name} (' + ', '.join([f'{col} TEXT' for col in df.columns]) + ')'
+    conn.execute(text(create_stmt))
     df.to_sql(table_name, conn, if_exists='append', index=False)
-print(f"Uploaded to {table_name}")
+print(f"Uploaded {len(df)} rows to table '{table_name}'")
 '''
                     sh '''
-                      source /opt/jenkins-python-env/bin/activate
-                      python upload.py
+                        #!/bin/bash
+                        . ${VENV_PATH}/bin/activate
+                        python upload.py
                     '''
-
                 }
             }
         }
@@ -90,7 +93,7 @@ print(f"Uploaded to {table_name}")
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
                     sh '''
-                        echo "Verifying table..."
+                        echo "Verifying upload..."
                         PGSSLMODE=require PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d $DB_NAME -c "SELECT COUNT(*) FROM ${TABLE_NAME};"
                     '''
                 }
