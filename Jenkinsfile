@@ -74,17 +74,15 @@ df.columns = [col.strip().replace(" ", "_").replace("-", "_").lower() for col in
 engine = create_engine(f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
 
 with engine.begin() as conn:
-    # Create table if not exists with only column names
     create_stmt = f'CREATE TABLE IF NOT EXISTS {table_name} (' + ', '.join([f'{col} TEXT' for col in df.columns]) + ')'
     conn.execute(text(create_stmt))
     df.to_sql(table_name, conn, if_exists='append', index=False)
 print(f"Uploaded {len(df)} rows to table '{table_name}'")
 '''
-                    sh '''
-                        #!/bin/bash
-                        . ${VENV_PATH}/bin/activate
-                        python upload.py
-                    '''
+                    sh """
+                        . ${env.VENV_PATH}/bin/activate
+                        DATA_FILE="${env.DATA_FILE}" TABLE_NAME="${env.TABLE_NAME}" DB_NAME="${env.DB_NAME}" DB_HOST="${env.DB_HOST}" DB_PORT="${env.DB_PORT}" USERNAME="$USERNAME" PASSWORD="$PASSWORD" python upload.py
+                    """
                 }
             }
         }
@@ -92,10 +90,11 @@ print(f"Uploaded {len(df)} rows to table '{table_name}'")
         stage('Verify Upload') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh '''
+                    sh """
                         echo "Verifying upload..."
-                        PGSSLMODE=require PGPASSWORD=$PASSWORD psql -h $DB_HOST -p $DB_PORT -U $USERNAME -d $DB_NAME -c "SELECT COUNT(*) FROM ${TABLE_NAME};"
-                    '''
+                        export PGPASSWORD="$PASSWORD"
+                        psql "host=${env.DB_HOST} port=${env.DB_PORT} user=$USERNAME dbname=${env.DB_NAME} sslmode=require" -c "SELECT COUNT(*) FROM ${env.TABLE_NAME};"
+                    """
                 }
             }
         }
@@ -106,7 +105,7 @@ print(f"Uploaded {len(df)} rows to table '{table_name}'")
             echo "Data upload complete!"
         }
         failure {
-            echo "Pipeline failed. Please check logs."
+            echo "Pipeline failed. Please check logs for details."
         }
     }
 }
