@@ -31,14 +31,14 @@ pipeline {
                     writeFile file: 'upload.py', text: '''
 import os
 import pandas as pd
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, text
 from urllib.parse import quote_plus
 import os.path
 
 file_path = os.environ['DATA_FILE']
 table_name = os.environ['TABLE_NAME']
 db_user = os.environ['USERNAME']
-db_pass = quote_plus(os.environ['PASSWORD'])  # URL-encode password to handle special chars
+db_pass = quote_plus(os.environ['PASSWORD'])  # URL-encode password for special chars
 db_name = os.environ['DB_NAME']
 db_host = os.environ['DB_HOST']
 db_port = os.environ['DB_PORT']
@@ -53,16 +53,18 @@ elif ext == '.json':
 else:
     raise Exception(f"Unsupported file type: {ext}")
 
+# Normalize columns: strip spaces, replace spaces/dashes with underscores, lowercase
 df.columns = [col.strip().replace(" ", "_").replace("-", "_").lower() for col in df.columns]
 
 engine = create_engine(f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
-inspector = inspect(engine)
 
 with engine.begin() as conn:
-    if table_name not in inspector.get_table_names():
-        print(f"Creating table '{table_name}'...")
-        create_stmt = f'CREATE TABLE {table_name} (' + ', '.join([f'{col} TEXT' for col in df.columns]) + ')'
-        conn.execute(text(create_stmt))
+    # Create table if not exists with all columns as TEXT
+    columns_ddl = ", ".join([f"{col} TEXT" for col in df.columns])
+    create_table_sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_ddl});"
+    conn.execute(text(create_table_sql))
+
+    # Append data to the table
     df.to_sql(table_name, conn, if_exists='append', index=False)
 
 print(f"Uploaded {len(df)} rows to table '{table_name}'")
