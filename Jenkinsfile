@@ -66,9 +66,16 @@ with engine.begin() as conn:
 
 print(f"Uploaded {len(df)} rows to table '{table_name}'")
 '''
-                    sh """
-                        DATA_FILE="${env.DATA_FILE}" TABLE_NAME="${env.TABLE_NAME}" DB_NAME="${env.DB_NAME}" DB_HOST="${env.DB_HOST}" DB_PORT="${env.DB_PORT}" USERNAME="$USERNAME" PASSWORD="$PASSWORD" python3 upload.py
-                    """
+                    sh '''
+                        export DATA_FILE="${DATA_FILE}"
+                        export TABLE_NAME="${TABLE_NAME}"
+                        export DB_NAME="${DB_NAME}"
+                        export DB_HOST="${DB_HOST}"
+                        export DB_PORT="${DB_PORT}"
+                        export USERNAME="${USERNAME}"
+                        export PASSWORD="${PASSWORD}"
+                        python3 upload.py
+                    '''
                 }
             }
         }
@@ -76,11 +83,11 @@ print(f"Uploaded {len(df)} rows to table '{table_name}'")
         stage('Verify Upload') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh """
+                    sh '''
                         export PGPASSWORD="$PASSWORD"
                         echo "Verifying data count..."
                         psql "host=${DB_HOST} port=${DB_PORT} user=$USERNAME dbname=${DB_NAME} sslmode=require" -c "SELECT COUNT(*) FROM ${TABLE_NAME};"
-                    """
+                    '''
                 }
             }
         }
