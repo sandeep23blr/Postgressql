@@ -9,21 +9,22 @@ pipeline {
     }
 
     stages {
-        stage('Detect Data File') {
+        stage('Detect Latest Data File') {
             steps {
                 script {
-                    def file = sh(script: "find ./uploads -type f \\( -iname '*.csv' -o -iname '*.json' -o -iname '*.xlsx' \\) | head -n 1", returnStdout: true).trim()
+                    // Find the latest modified file among CSV/JSON/XLSX
+                    def file = sh(script: "find ./uploads -type f \\( -iname '*.csv' -o -iname '*.json' -o -iname '*.xlsx' \\) -printf '%T@ %p\\n' | sort -n | tail -n 1 | cut -d' ' -f2-", returnStdout: true).trim()
                     if (!file) {
                         error "No supported data file found in ./uploads directory."
                     }
                     env.DATA_FILE = file
 
-                    // Extract base filename (without extension) and normalize to valid SQL identifier
+                    // Extract base filename to use as table name
                     def filename = file.tokenize('/').last()
                     def base = filename.split("\\.")[0].replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase()
                     env.TABLE_NAME = base
 
-                    echo "Detected file: ${env.DATA_FILE}"
+                    echo "Detected latest file: ${env.DATA_FILE}"
                     echo "Target table: ${env.TABLE_NAME}"
                 }
             }
@@ -121,7 +122,7 @@ print(f"Downloaded {len(df)} rows from table '{table_name}' into '{output_file}'
 
     post {
         success {
-            archiveArtifacts artifacts: '*.csv', fingerprint: true
+            archiveArtifacts artifacts: '*_downloaded.csv', fingerprint: true
             echo "Upload and download complete!"
         }
         failure {
