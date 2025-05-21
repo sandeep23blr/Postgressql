@@ -6,7 +6,6 @@ pipeline {
         DB_PORT = '5432'
         DB_NAME = 'postgres'
         DB_CRED_ID = 'pg-azure-creds'
-        VENV_PATH = '.venv'
     }
 
     stages {
@@ -23,17 +22,6 @@ pipeline {
                     echo "Detected file: ${env.DATA_FILE}"
                     echo "Target table: ${env.TABLE_NAME}"
                 }
-            }
-        }
-
-        stage('Setup Python Env') {
-            steps {
-                sh '''
-                    python3 -m venv ${VENV_PATH}
-                    . ${VENV_PATH}/bin/activate
-                    ${VENV_PATH}/bin/pip install --upgrade pip
-                    ${VENV_PATH}/bin/pip install pandas sqlalchemy psycopg2-binary openpyxl
-                '''
             }
         }
 
@@ -79,8 +67,7 @@ with engine.begin() as conn:
 print(f"Uploaded {len(df)} rows to table '{table_name}'")
 '''
                     sh """
-                        . ${VENV_PATH}/bin/activate
-                        DATA_FILE="${env.DATA_FILE}" TABLE_NAME="${env.TABLE_NAME}" DB_NAME="${env.DB_NAME}" DB_HOST="${env.DB_HOST}" DB_PORT="${env.DB_PORT}" USERNAME="$USERNAME" PASSWORD="$PASSWORD" python upload.py
+                        DATA_FILE="${env.DATA_FILE}" TABLE_NAME="${env.TABLE_NAME}" DB_NAME="${env.DB_NAME}" DB_HOST="${env.DB_HOST}" DB_PORT="${env.DB_PORT}" USERNAME="$USERNAME" PASSWORD="$PASSWORD" python3 upload.py
                     """
                 }
             }
