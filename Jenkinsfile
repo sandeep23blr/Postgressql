@@ -41,7 +41,7 @@ from urllib.parse import quote_plus
 file_path = os.environ['DATA_FILE']
 table_name = os.environ['TABLE_NAME']
 db_user = os.environ['USERNAME']
-db_pass = quote_plus(os.environ['PASSWORD'])  # URL-encode special characters
+db_pass = quote_plus(os.environ['PASSWORD'])
 db_name = os.environ['DB_NAME']
 db_host = os.environ['DB_HOST']
 db_port = os.environ['DB_PORT']
@@ -56,18 +56,15 @@ elif ext == '.json':
 else:
     raise Exception(f"Unsupported file type: {ext}")
 
-# Normalize column names
 df.columns = [col.strip().replace(" ", "_").replace("-", "_").lower() for col in df.columns]
 
 engine = create_engine(f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
 
 with engine.begin() as conn:
-    # Create table if it doesn't exist
     columns_ddl = ", ".join([f"{col} TEXT" for col in df.columns])
     create_sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_ddl});"
     conn.execute(text(create_sql))
 
-    # Upload data
     df.to_sql(table_name, conn, if_exists='append', index=False)
 
 print(f"Uploaded {len(df)} rows to table '{table_name}'")
@@ -90,11 +87,42 @@ print(f"Uploaded {len(df)} rows to table '{table_name}'")
                 }
             }
         }
+
+        stage('Pull Data from PostgreSQL') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    writeFile file: 'pull_data.py', text: '''
+import os
+import pandas as pd
+from sqlalchemy import create_engine
+from urllib.parse import quote_plus
+
+table_name = os.environ['TABLE_NAME']
+db_user = os.environ['USERNAME']
+db_pass = quote_plus(os.environ['PASSWORD'])
+db_name = os.environ['DB_NAME']
+db_host = os.environ['DB_HOST']
+db_port = os.environ['DB_PORT']
+
+engine = create_engine(f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
+df = pd.read_sql(f"SELECT * FROM {table_name}", con=engine)
+
+output_file = f"{table_name}_downloaded.csv"
+df.to_csv(output_file, index=False)
+print(f"Downloaded {len(df)} rows from table '{table_name}' into '{output_file}'")
+'''
+                    sh """
+                        TABLE_NAME="${env.TABLE_NAME}" DB_NAME="${env.DB_NAME}" DB_HOST="${env.DB_HOST}" DB_PORT="${env.DB_PORT}" USERNAME="$USERNAME" PASSWORD="$PASSWORD" python3 pull_data.py
+                    """
+                }
+            }
+        }
     }
 
     post {
         success {
-            echo "Upload complete!"
+            archiveArtifacts artifacts: '*.csv', fingerprint: true
+            echo "Upload and download complete!"
         }
         failure {
             echo "Pipeline failed. Check console output for details."
