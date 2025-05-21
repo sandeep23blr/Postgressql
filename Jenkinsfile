@@ -4,7 +4,7 @@ pipeline {
     environment {
         DB_HOST = 'testpostgrestest.postgres.database.azure.com'
         DB_PORT = '5432'
-        DB_NAME = 'testpostgrestest'
+        DB_NAME = 'postgres'
         DB_CRED_ID = 'pg-azure-creds'
         CSV_FILE = 'data.csv'
         TABLE_NAME = 'csv_data'
