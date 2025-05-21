@@ -32,7 +32,7 @@ pipeline {
 
         stage('Install Python Requirements') {
             steps {
-                sh 'pip install pandas sqlalchemy psycopg2-binary openpyxl'
+                sh 'pip3 install pandas sqlalchemy psycopg2-binary openpyxl'
             }
         }
 
