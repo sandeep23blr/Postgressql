@@ -12,13 +12,19 @@ pipeline {
         stage('Detect Data File') {
             steps {
                 script {
-                    def file = sh(script: "find . -type f \\( -iname '*.csv' -o -iname '*.json' -o -iname '*.xlsx' \\) | head -n 1", returnStdout: true).trim()
+                    def file = sh(
+                        script: "find ./uploads -type f \\( -iname '*.csv' -o -iname '*.json' -o -iname '*.xlsx' \\) | head -n 1",
+                        returnStdout: true
+                    ).trim()
+
                     if (!file) {
-                        error "No supported data file found."
+                        error "No supported data file found in ./uploads directory."
                     }
+
                     env.DATA_FILE = file
                     def base = file.tokenize('/')[-1].split("\\.")[0].replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase()
                     env.TABLE_NAME = base
+
                     echo "Detected file: ${env.DATA_FILE}"
                     echo "Target table: ${env.TABLE_NAME}"
                 }
@@ -31,18 +37,18 @@ pipeline {
                     writeFile file: 'upload.py', text: '''
 import os
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect
 from urllib.parse import quote_plus
-import os.path
 
 file_path = os.environ['DATA_FILE']
 table_name = os.environ['TABLE_NAME']
 db_user = os.environ['USERNAME']
-db_pass = quote_plus(os.environ['PASSWORD'])  # URL-encode password for special chars
+db_pass = quote_plus(os.environ['PASSWORD'])  # Handle special characters
 db_name = os.environ['DB_NAME']
 db_host = os.environ['DB_HOST']
 db_port = os.environ['DB_PORT']
 
+# Determine file type
 ext = os.path.splitext(file_path)[-1].lower()
 if ext == '.csv':
     df = pd.read_csv(file_path)
@@ -53,25 +59,36 @@ elif ext == '.json':
 else:
     raise Exception(f"Unsupported file type: {ext}")
 
-# Normalize columns: strip spaces, replace spaces/dashes with underscores, lowercase
+# Clean column names
 df.columns = [col.strip().replace(" ", "_").replace("-", "_").lower() for col in df.columns]
 
+# Create connection
 engine = create_engine(f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
+inspector = inspect(engine)
 
+# Create table if it doesn't exist
 with engine.begin() as conn:
-    # Create table if not exists with all columns as TEXT
-    columns_ddl = ", ".join([f"{col} TEXT" for col in df.columns])
-    create_table_sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_ddl});"
-    conn.execute(text(create_table_sql))
+    if table_name not in inspector.get_table_names():
+        print(f"Creating table '{table_name}'...")
+        create_stmt = f'CREATE TABLE {table_name} (' + ', '.join([f'{col} TEXT' for col in df.columns]) + ')'
+        conn.execute(text(create_stmt))
 
-    # Append data to the table
+    # Insert data
     df.to_sql(table_name, conn, if_exists='append', index=False)
 
 print(f"Uploaded {len(df)} rows to table '{table_name}'")
 '''
-                    sh """
-                        DATA_FILE="${env.DATA_FILE}" TABLE_NAME="${env.TABLE_NAME}" DB_NAME="${env.DB_NAME}" DB_HOST="${env.DB_HOST}" DB_PORT="${env.DB_PORT}" USERNAME="$USERNAME" PASSWORD="$PASSWORD" python3 upload.py
-                    """
+                    // Safely run upload.py
+                    sh '''
+                        export DATA_FILE="${DATA_FILE}"
+                        export TABLE_NAME="${TABLE_NAME}"
+                        export DB_NAME="${DB_NAME}"
+                        export DB_HOST="${DB_HOST}"
+                        export DB_PORT="${DB_PORT}"
+                        export USERNAME="$USERNAME"
+                        export PASSWORD="$PASSWORD"
+                        python3 upload.py
+                    '''
                 }
             }
         }
@@ -79,11 +96,11 @@ print(f"Uploaded {len(df)} rows to table '{table_name}'")
         stage('Verify Upload') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh """
+                    sh '''
                         export PGPASSWORD="$PASSWORD"
-                        echo "Verifying data count..."
+                        echo "Verifying data count in ${TABLE_NAME}..."
                         psql "host=${DB_HOST} port=${DB_PORT} user=$USERNAME dbname=${DB_NAME} sslmode=require" -c "SELECT COUNT(*) FROM ${TABLE_NAME};"
-                    """
+                    '''
                 }
             }
         }
@@ -94,7 +111,7 @@ print(f"Uploaded {len(df)} rows to table '{table_name}'")
             echo "Upload complete!"
         }
         failure {
-            echo "Pipeline failed. Check console output for details."
+            echo "Pipeline failed. Check logs for errors."
         }
     }
 }
