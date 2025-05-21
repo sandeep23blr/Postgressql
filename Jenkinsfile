@@ -78,9 +78,10 @@ with engine.begin() as conn:
 print(f"Uploaded to {table_name}")
 '''
                     sh '''
-                        . ${VENV_PATH}/bin/activate
-                        python upload.py
+                      source /opt/jenkins-python-env/bin/activate
+                      python upload.py
                     '''
+
                 }
             }
         }
