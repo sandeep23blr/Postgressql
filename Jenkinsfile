@@ -17,6 +17,18 @@ pipeline {
     }
 
     stages {
+        stage('Verify File Existence') {
+            steps {
+                script {
+                    def filePath = "./uploads/${params.CHOICE_FILE}"
+                    if (!fileExists(filePath)) {
+                        error "The file '${filePath}' does not exist. Please check the 'uploads' directory."
+                    }
+                    echo "File '${filePath}' exists and is ready."
+                }
+            }
+        }
+
         stage('Set File and Table Names') {
             steps {
                 script {
@@ -46,6 +58,9 @@ db_name = os.environ['DB_NAME']
 db_host = os.environ['DB_HOST']
 db_port = os.environ['DB_PORT']
 
+if not os.path.exists(file_path):
+    raise FileNotFoundError(f"File not found: {file_path}")
+
 ext = os.path.splitext(file_path)[-1].lower()
 if ext == '.csv':
     df = pd.read_csv(file_path)
@@ -64,14 +79,13 @@ with engine.begin() as conn:
     columns_ddl = ", ".join([f"{col} TEXT" for col in df.columns])
     create_sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_ddl});"
     conn.execute(text(create_sql))
-
     df.to_sql(table_name, conn, if_exists='append', index=False)
 
 print(f"Uploaded {len(df)} rows to table '{table_name}'")
 '''
-                    sh """
-                        DATA_FILE="${env.DATA_FILE}" TABLE_NAME="${env.TABLE_NAME}" DB_NAME="${env.DB_NAME}" DB_HOST="${env.DB_HOST}" DB_PORT="${env.DB_PORT}" USERNAME="$USERNAME" PASSWORD="$PASSWORD" python3 upload.py
-                    """
+                    sh '''
+                        python3 upload.py
+                    '''
                 }
             }
         }
@@ -99,9 +113,9 @@ output_file = f"{table_name}_downloaded.csv"
 df.to_csv(output_file, index=False)
 print(f"Downloaded {len(df)} rows from table '{table_name}' into '{output_file}'")
 '''
-                    sh """
-                        TABLE_NAME="${env.TABLE_NAME}" DB_NAME="${env.DB_NAME}" DB_HOST="${env.DB_HOST}" DB_PORT="${env.DB_PORT}" USERNAME="$USERNAME" PASSWORD="$PASSWORD" python3 pull_data.py
-                    """
+                    sh '''
+                        python3 pull_data.py
+                    '''
                 }
             }
         }
