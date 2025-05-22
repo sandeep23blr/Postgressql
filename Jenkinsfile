@@ -3,9 +3,9 @@ pipeline {
 
     parameters {
         choice(name: 'CHOICE_FILE', choices: [
-            'sample_data.csv',
-            'employees.xlsx',
-            'products.json'
+            'customers.csv',
+            'leads.csv',
+            'people.csv'
         ], description: 'Choose a file from ./uploads to upload and download from PostgreSQL')
     }
 
