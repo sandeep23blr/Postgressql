@@ -1,16 +1,6 @@
 pipeline {
     agent any
 
-    parameters {
-        choice(name: 'CHOICE_FILE', choices: [
-            'customers.csv',
-            'leads.csv',
-            'people.csv'
-        ], description: 'Choose a file from ./uploads to upload to PostgreSQL')
-
-        string(name: 'DOWNLOAD_FILENAME', defaultValue: '', description: 'Enter the file name (e.g. output.csv) to save the downloaded data. Leave blank to use default "<table_name>_downloaded.csv"')
-    }
-
     environment {
         DB_HOST = 'testpostgrestest.postgres.database.azure.com'
         DB_PORT = '5432'
@@ -19,28 +9,21 @@ pipeline {
     }
 
     stages {
-        stage('Verify File Existence') {
+        stage('Detect Latest Data File') {
             steps {
                 script {
-                    def filePath = "./uploads/${params.CHOICE_FILE}"
-                    if (!fileExists(filePath)) {
-                        error "The file '${filePath}' does not exist. Please check the 'uploads' directory."
+                    def file = sh(script: "find ./uploads -type f \\( -iname '*.csv' -o -iname '*.json' -o -iname '*.xlsx' \\) -printf '%T@ %p\\n' | sort -n | tail -n 1 | cut -d' ' -f2-", returnStdout: true).trim()
+                    if (!file) {
+                        error "No supported data file found in ./uploads directory."
                     }
-                    echo "File '${filePath}' exists and is ready."
-                }
-            }
-        }
+                    env.DATA_FILE = file
 
-        stage('Set File and Table Names') {
-            steps {
-                script {
-                    env.DATA_FILE = "./uploads/${params.CHOICE_FILE}"
-                    def base = params.CHOICE_FILE.tokenize('.')[0].replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase()
+                    def filename = file.tokenize('/').last()
+                    def base = filename.split("\\.")[0].replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase()
                     env.TABLE_NAME = base
-                    env.DOWNLOAD_FILE = params.DOWNLOAD_FILENAME?.trim() ?: "${base}_downloaded.csv"
-                    echo "Selected file: ${env.DATA_FILE}"
-                    echo "Derived table name: ${env.TABLE_NAME}"
-                    echo "Output file will be: ${env.DOWNLOAD_FILE}"
+
+                    echo "Detected latest file: ${env.DATA_FILE}"
+                    echo "Target table: ${env.TABLE_NAME}"
                 }
             }
         }
@@ -62,9 +45,6 @@ db_name = os.environ['DB_NAME']
 db_host = os.environ['DB_HOST']
 db_port = os.environ['DB_PORT']
 
-if not os.path.exists(file_path):
-    raise FileNotFoundError(f"File not found: {file_path}")
-
 ext = os.path.splitext(file_path)[-1].lower()
 if ext == '.csv':
     df = pd.read_csv(file_path)
@@ -83,13 +63,39 @@ with engine.begin() as conn:
     columns_ddl = ", ".join([f"{col} TEXT" for col in df.columns])
     create_sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_ddl});"
     conn.execute(text(create_sql))
+
     df.to_sql(table_name, conn, if_exists='append', index=False)
 
 print(f"Uploaded {len(df)} rows to table '{table_name}'")
 '''
-                    sh '''
-                        python3 upload.py
-                    '''
+                    sh """
+                        DATA_FILE="${env.DATA_FILE}" TABLE_NAME="${env.TABLE_NAME}" DB_NAME="${env.DB_NAME}" DB_HOST="${env.DB_HOST}" DB_PORT="${env.DB_PORT}" USERNAME="$USERNAME" PASSWORD="$PASSWORD" python3 upload.py
+                    """
+                }
+            }
+        }
+
+        stage('Verify Upload') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    sh """
+                        export PGPASSWORD="$PASSWORD"
+                        echo "Verifying data count in table '${TABLE_NAME}'..."
+                        psql "host=${DB_HOST} port=${DB_PORT} user=$USERNAME dbname=${DB_NAME} sslmode=require" -c "SELECT COUNT(*) FROM ${TABLE_NAME};"
+                    """
+                }
+            }
+        }
+
+        stage('Ask for Download Filename') {
+            steps {
+                script {
+                    env.DOWNLOAD_FILENAME = input(
+                        message: "Enter the name to save the pulled data (e.g. data.csv):",
+                        parameters: [
+                            string(name: 'filename', defaultValue: "${env.TABLE_NAME}_downloaded.csv", description: 'Output file name')
+                        ]
+                    )
                 }
             }
         }
@@ -104,7 +110,8 @@ from sqlalchemy import create_engine
 from urllib.parse import quote_plus
 
 table_name = os.environ['TABLE_NAME']
-output_file = os.environ['DOWNLOAD_FILE']
+output_file = os.environ.get('DOWNLOAD_FILENAME', f"{table_name}_downloaded.csv")
+
 db_user = os.environ['USERNAME']
 db_pass = quote_plus(os.environ['PASSWORD'])
 db_name = os.environ['DB_NAME']
@@ -117,9 +124,9 @@ df = pd.read_sql(f"SELECT * FROM {table_name}", con=engine)
 df.to_csv(output_file, index=False)
 print(f"Downloaded {len(df)} rows from table '{table_name}' into '{output_file}'")
 '''
-                    sh '''
-                        python3 pull_data.py
-                    '''
+                    sh """
+                        TABLE_NAME="${env.TABLE_NAME}" DOWNLOAD_FILENAME="${env.DOWNLOAD_FILENAME}" DB_NAME="${env.DB_NAME}" DB_HOST="${env.DB_HOST}" DB_PORT="${env.DB_PORT}" USERNAME="$USERNAME" PASSWORD="$PASSWORD" python3 pull_data.py
+                    """
                 }
             }
         }
@@ -127,7 +134,7 @@ print(f"Downloaded {len(df)} rows from table '{table_name}' into '{output_file}'
 
     post {
         success {
-            archiveArtifacts artifacts: '${DOWNLOAD_FILENAME ?: "*_downloaded.csv"}', fingerprint: true
+            archiveArtifacts artifacts: '*_downloaded.csv', fingerprint: true
             echo "Upload and download complete!"
         }
         failure {
