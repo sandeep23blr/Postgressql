@@ -6,7 +6,9 @@ pipeline {
             'customers.csv',
             'leads.csv',
             'people.csv'
-        ], description: 'Choose a file from ./uploads to upload and download from PostgreSQL')
+        ], description: 'Choose a file from ./uploads to upload to PostgreSQL')
+
+        string(name: 'DOWNLOAD_FILENAME', defaultValue: '', description: 'Enter the file name (e.g. output.csv) to save the downloaded data. Leave blank to use default "<table_name>_downloaded.csv"')
     }
 
     environment {
@@ -35,8 +37,10 @@ pipeline {
                     env.DATA_FILE = "./uploads/${params.CHOICE_FILE}"
                     def base = params.CHOICE_FILE.tokenize('.')[0].replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase()
                     env.TABLE_NAME = base
+                    env.DOWNLOAD_FILE = params.DOWNLOAD_FILENAME?.trim() ?: "${base}_downloaded.csv"
                     echo "Selected file: ${env.DATA_FILE}"
                     echo "Derived table name: ${env.TABLE_NAME}"
+                    echo "Output file will be: ${env.DOWNLOAD_FILE}"
                 }
             }
         }
@@ -100,6 +104,7 @@ from sqlalchemy import create_engine
 from urllib.parse import quote_plus
 
 table_name = os.environ['TABLE_NAME']
+output_file = os.environ['DOWNLOAD_FILE']
 db_user = os.environ['USERNAME']
 db_pass = quote_plus(os.environ['PASSWORD'])
 db_name = os.environ['DB_NAME']
@@ -109,7 +114,6 @@ db_port = os.environ['DB_PORT']
 engine = create_engine(f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}")
 df = pd.read_sql(f"SELECT * FROM {table_name}", con=engine)
 
-output_file = f"{table_name}_downloaded.csv"
 df.to_csv(output_file, index=False)
 print(f"Downloaded {len(df)} rows from table '{table_name}' into '{output_file}'")
 '''
@@ -123,7 +127,7 @@ print(f"Downloaded {len(df)} rows from table '{table_name}' into '{output_file}'
 
     post {
         success {
-            archiveArtifacts artifacts: '*_downloaded.csv', fingerprint: true
+            archiveArtifacts artifacts: '${DOWNLOAD_FILENAME ?: "*_downloaded.csv"}', fingerprint: true
             echo "Upload and download complete!"
         }
         failure {
