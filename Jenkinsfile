@@ -29,7 +29,7 @@ pipeline {
                     env.TABLE_NAME = base
 
                     echo "Detected latest file: ${env.DATA_FILE}"
-                    echo "Target table: ${env.TABLE_NAME}"
+                    echo "Target table (auto-derived): ${env.TABLE_NAME}"
                 }
             }
         }
@@ -84,19 +84,22 @@ print(f"Uploaded {len(df)} rows to table '{table_name}'")
             }
         }
 
+        stage('Set Pull Table Name') {
+            steps {
+                script {
+                    if (params.TABLE_TO_PULL?.trim()) {
+                        env.TABLE_NAME = params.TABLE_TO_PULL.trim()
+                        echo "Using user-specified table: ${env.TABLE_NAME}"
+                    } else {
+                        echo "Using auto-detected uploaded table: ${env.TABLE_NAME}"
+                    }
+                }
+            }
+        }
+
         stage('Pull Data from PostgreSQL') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    script {
-                        def table = params.TABLE_TO_PULL?.trim()
-                        if (table) {
-                            env.TABLE_NAME = table
-                            echo "Pulling data from user-specified table: ${env.TABLE_NAME}"
-                        } else {
-                            echo "Pulling data from auto-detected uploaded table: ${env.TABLE_NAME}"
-                        }
-                    }
-
                     writeFile file: 'pull_data.py', text: '''
 import os
 import pandas as pd
@@ -128,7 +131,7 @@ print(f"Downloaded {len(df)} rows from table '{table_name}' into '{output_file}'
     post {
         success {
             archiveArtifacts artifacts: '*_downloaded.csv', fingerprint: true
-            echo "Upload and download complete!"
+            echo "Upload and/or download complete!"
         }
         failure {
             echo "Pipeline failed. Check console output for details."
