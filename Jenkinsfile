@@ -2,7 +2,11 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'TABLE_TO_PULL', defaultValue: '', description: 'Optional: Name of the specific table to pull from PostgreSQL (leave blank to use latest uploaded)')
+        choice(name: 'CHOICE_FILE', choices: [
+            'sample_data.csv',
+            'employees.xlsx',
+            'products.json'
+        ], description: 'Choose a file from ./uploads to upload and download from PostgreSQL')
     }
 
     environment {
@@ -13,31 +17,19 @@ pipeline {
     }
 
     stages {
-        stage('Detect Latest Data File') {
-            when {
-                expression { return !params.TABLE_TO_PULL }
-            }
+        stage('Set File and Table Names') {
             steps {
                 script {
-                    def file = sh(script: "find ./uploads -type f \\( -iname '*.csv' -o -iname '*.json' -o -iname '*.xlsx' \\) -printf '%T@ %p\\n' | sort -n | tail -n 1 | cut -d' ' -f2-", returnStdout: true).trim()
-                    if (!file) {
-                        error "No supported data file found in ./uploads directory."
-                    }
-                    env.DATA_FILE = file
-                    def filename = file.tokenize('/').last()
-                    def base = filename.split("\\.")[0].replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase()
+                    env.DATA_FILE = "./uploads/${params.CHOICE_FILE}"
+                    def base = params.CHOICE_FILE.tokenize('.')[0].replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase()
                     env.TABLE_NAME = base
-
-                    echo "Detected latest file: ${env.DATA_FILE}"
-                    echo "Target table (auto-derived): ${env.TABLE_NAME}"
+                    echo "Selected file: ${env.DATA_FILE}"
+                    echo "Derived table name: ${env.TABLE_NAME}"
                 }
             }
         }
 
         stage('Upload to PostgreSQL') {
-            when {
-                expression { return !params.TABLE_TO_PULL }
-            }
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
                     writeFile file: 'upload.py', text: '''
@@ -84,19 +76,6 @@ print(f"Uploaded {len(df)} rows to table '{table_name}'")
             }
         }
 
-        stage('Set Pull Table Name') {
-            steps {
-                script {
-                    if (params.TABLE_TO_PULL?.trim()) {
-                        env.TABLE_NAME = params.TABLE_TO_PULL.trim()
-                        echo "Using user-specified table: ${env.TABLE_NAME}"
-                    } else {
-                        echo "Using auto-detected uploaded table: ${env.TABLE_NAME}"
-                    }
-                }
-            }
-        }
-
         stage('Pull Data from PostgreSQL') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
@@ -131,7 +110,7 @@ print(f"Downloaded {len(df)} rows from table '{table_name}' into '{output_file}'
     post {
         success {
             archiveArtifacts artifacts: '*_downloaded.csv', fingerprint: true
-            echo "Upload and/or download complete!"
+            echo "Upload and download complete!"
         }
         failure {
             echo "Pipeline failed. Check console output for details."
