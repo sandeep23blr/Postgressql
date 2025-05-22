@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'TABLE_TO_PULL', defaultValue: '', description: 'Optional: Name of the specific table to pull from PostgreSQL (leave blank to use latest uploaded)')
+    }
+
     environment {
         DB_HOST = 'testpostgrestest.postgres.database.azure.com'
         DB_PORT = '5432'
@@ -10,16 +14,16 @@ pipeline {
 
     stages {
         stage('Detect Latest Data File') {
+            when {
+                expression { return !params.TABLE_TO_PULL }
+            }
             steps {
                 script {
-                    // Find the latest modified file among CSV/JSON/XLSX
                     def file = sh(script: "find ./uploads -type f \\( -iname '*.csv' -o -iname '*.json' -o -iname '*.xlsx' \\) -printf '%T@ %p\\n' | sort -n | tail -n 1 | cut -d' ' -f2-", returnStdout: true).trim()
                     if (!file) {
                         error "No supported data file found in ./uploads directory."
                     }
                     env.DATA_FILE = file
-
-                    // Extract base filename to use as table name
                     def filename = file.tokenize('/').last()
                     def base = filename.split("\\.")[0].replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase()
                     env.TABLE_NAME = base
@@ -31,6 +35,9 @@ pipeline {
         }
 
         stage('Upload to PostgreSQL') {
+            when {
+                expression { return !params.TABLE_TO_PULL }
+            }
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
                     writeFile file: 'upload.py', text: '''
@@ -77,21 +84,19 @@ print(f"Uploaded {len(df)} rows to table '{table_name}'")
             }
         }
 
-        stage('Verify Upload') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    sh """
-                        export PGPASSWORD="$PASSWORD"
-                        echo "Verifying data count in table '${TABLE_NAME}'..."
-                        psql "host=${DB_HOST} port=${DB_PORT} user=$USERNAME dbname=${DB_NAME} sslmode=require" -c "SELECT COUNT(*) FROM ${TABLE_NAME};"
-                    """
-                }
-            }
-        }
-
         stage('Pull Data from PostgreSQL') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DB_CRED_ID}", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                    script {
+                        def table = params.TABLE_TO_PULL?.trim()
+                        if (table) {
+                            env.TABLE_NAME = table
+                            echo "Pulling data from user-specified table: ${env.TABLE_NAME}"
+                        } else {
+                            echo "Pulling data from auto-detected uploaded table: ${env.TABLE_NAME}"
+                        }
+                    }
+
                     writeFile file: 'pull_data.py', text: '''
 import os
 import pandas as pd
